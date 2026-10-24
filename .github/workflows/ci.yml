@@ -1,0 +1,59 @@
+name: CI
+
+# Each layer is checked with the tool that runs it on the router: BusyBox ash and
+# awk for the backend and parser, the browser's JS engine for the LuCI views.
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Unit tests (parser, backend) and syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y dash busybox
+          pip install ddt
+      - name: Shell syntax (sh, dash, busybox ash)
+        run: |
+          set -eu
+          for f in root/usr/libexec/rpcd/g7_ddm root/etc/init.d/g7_ddm \
+                   root/etc/uci-defaults/80_luci-app-g7-ddm install.sh uninstall.sh; do
+            sh -n "$f"; dash -n "$f"; busybox ash -n "$f"; echo "ok: $f"
+          done
+      - name: Data-driven unit tests (GNU awk)
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Parser under BusyBox awk gives the same output
+        run: |
+          set -eu
+          for f in tests/fixtures/*.json; do
+            a=$(awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f")
+            b=$(busybox awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f")
+            [ "$a" = "$b" ] || { echo "differs: $f"; exit 1; }
+            echo "ok: $f"
+          done
+
+  views:
+    name: LuCI views parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: |
+          for f in htdocs/luci-static/resources/view/g7_ddm/*.js; do
+            node -e "new Function(require('fs').readFileSync('$f', 'utf8'))" && echo "ok: $f"
+          done
+      - run: |
+          for f in root/usr/share/luci/menu.d/*.json root/usr/share/rpcd/acl.d/*.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f', 'utf8'))" && echo "ok: $f"
+          done

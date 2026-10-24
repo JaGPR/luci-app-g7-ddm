@@ -1,0 +1,6 @@
+.claude/
+*.apk
+*.ipk
+*.tar.gz
+__pycache__/
+*.pyc

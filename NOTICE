@@ -1,0 +1,28 @@
+luci-app-g7-ddm
+Optical diagnostics for the TP-Link XZ000-G7 GPON ONT (galachip OpenWrt firmware).
+
+This product is a modified version of luci-app-hsgq-ddm
+  https://github.com/JaGPR/luci-app-hsgq-ddm
+which is itself a modified version of luci-app-vsol-ddm
+  https://github.com/AliLostInTheDark/luci-app-vsol-ddm
+  Copyright the luci-app-vsol-ddm authors.
+  Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+All credit for the dashboard design, the rpcd backend architecture (cache,
+bounded staleness, history, background poller) and the LuCI views belongs to
+the original authors. This fork adapts that work to a different device; it is
+not affiliated with or endorsed by them or by TP-Link.
+
+Changes made in this fork (Apache-2.0 section 4(b)):
+  - Data source: the G7's public ubus status over HTTP (xpon.public status and
+    omci.agent status, one batched JSON-RPC request) instead of a telnet CLI.
+    No username or password is needed or stored; settings hold only the address.
+  - New awk parser (parse.awk): nW/m°C/µV/µA to dBm/°C/V/mA, GPON state O1-O7,
+    ONU-ID, OLT profile, LOS from the module's own low-power alarm; the Rx/Tx
+    warning and alarm limits come from the module (optical_class_source "module").
+  - Output keeps the luci-app-vsol-ddm / -hsgq-ddm cache format, so the same
+    dashboard and other consumers (e.g. Home NOC) read it unchanged.
+  - OMCI tables and restart are not available without a login on the G7: the
+    backend explains this, and the dashboard links to the G7's own web interface.
+  - Dashboard and settings labels for the G7; no dependency on nc or timeout.
+  - Data-driven unit tests (parser, backend) and router integration tests.

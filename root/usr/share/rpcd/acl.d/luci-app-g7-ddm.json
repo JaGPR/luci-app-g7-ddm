@@ -1,0 +1,29 @@
+{
+	"luci-app-g7-ddm": {
+		"description": "Allow LuCI to read the G7 GPON DDM diagnostics and test the connection",
+		"read": {
+			"ubus": {
+				"g7_ddm": [
+					"get_status",
+					"get_info",
+					"get_history",
+					"test_connection",
+					"get_omci"
+				]
+			},
+			"uci": [
+				"g7_ddm"
+			]
+		},
+		"write": {
+			"ubus": {
+				"g7_ddm": [
+					"restart"
+				]
+			},
+			"uci": [
+				"g7_ddm"
+			]
+		}
+	}
+}

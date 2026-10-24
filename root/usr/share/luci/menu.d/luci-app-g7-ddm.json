@@ -1,0 +1,28 @@
+{
+	"admin/status/g7_ddm": {
+		"title": "G7 GPON DDM",
+		"order": 57,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-g7-ddm" ]
+		}
+	},
+	"admin/status/g7_ddm/dashboard": {
+		"title": "Optical Diagnostics",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "g7_ddm/dashboard"
+		}
+	},
+	"admin/status/g7_ddm/settings": {
+		"title": "Settings",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "g7_ddm/settings"
+		}
+	}
+}

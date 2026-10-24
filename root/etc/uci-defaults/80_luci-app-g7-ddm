@@ -1,0 +1,40 @@
+#!/bin/sh
+# Runs once on install/upgrade, then removes itself.
+#
+# Modified from luci-app-hsgq-ddm / luci-app-vsol-ddm (Apache-2.0) for the
+# TP-Link XZ000-G7. See NOTICE.
+#
+# Additive and idempotent: an option is only written when it is absent, so an
+# upgrade never clobbers a value the user already set.
+
+CFG=g7_ddm
+
+if ! uci -q get ${CFG}.main >/dev/null 2>&1; then
+	uci -q set ${CFG}.main=${CFG}
+fi
+
+set_default() {
+	# $1 = option, $2 = default value
+	if [ -z "$(uci -q get ${CFG}.main.$1)" ]; then
+		uci -q set ${CFG}.main.$1="$2"
+	fi
+}
+
+# host is never seeded: it identifies one device on the user's own network.
+set_default enabled       1
+set_default port          80
+set_default timeout       8
+set_default unit_system   metric
+set_default optical_class bplus
+
+uci -q commit ${CFG}
+
+# Flush LuCI and rpcd caches so the new view and ACL are picked up.
+rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache* /tmp/g7_ddm_cache.json
+
+if [ -f /etc/init.d/g7_ddm ]; then
+	/etc/init.d/g7_ddm enable >/dev/null 2>&1 || true
+	/etc/init.d/g7_ddm restart >/dev/null 2>&1 || true
+fi
+
+exit 0

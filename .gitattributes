@@ -1,0 +1,9 @@
+# Everything here runs on OpenWrt (BusyBox ash/awk): always LF, even when
+# cloned on Windows. A CRLF in a shell script breaks it on the router.
+* text=auto eol=lf
+*.sh text eol=lf
+*.awk text eol=lf
+root/usr/libexec/rpcd/* text eol=lf
+root/etc/init.d/* text eol=lf
+root/etc/uci-defaults/* text eol=lf
+root/etc/config/* text eol=lf

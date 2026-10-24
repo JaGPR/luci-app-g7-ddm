@@ -1,0 +1,7 @@
+config g7_ddm 'main'
+	option enabled '1'
+	option host ''
+	option port '80'
+	option timeout '8'
+	option optical_class 'bplus'
+	option unit_system 'metric'
