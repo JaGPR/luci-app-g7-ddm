@@ -35,8 +35,13 @@ jobs:
         run: |
           set -eu
           for f in tests/fixtures/*.json; do
-            awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f" > /tmp/a.json
-            busybox awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f" > /tmp/b.json
+            for who in awk "busybox awk"; do
+              out=/tmp/a.json; [ "$who" = awk ] || out=/tmp/b.json
+              if ! $who -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f" > "$out" 2>/tmp/err; then
+                echo "::error::$who failed on $f: $(head -c 400 /tmp/err | tr -s '[:space:]' ' ')"
+                exit 1
+              fi
+            done
             python3 - "$f" <<'EOF'
           import json, sys
           def load(p, who):
