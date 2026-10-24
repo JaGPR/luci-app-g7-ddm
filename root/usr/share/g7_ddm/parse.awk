@@ -25,11 +25,23 @@ function val(key,    re, s) {
 
 function num(s) { return (s ~ /^-?[0-9]+(\.[0-9]+)?$/) }
 
+# Natural logarithm without awk's math library: some BusyBox builds have no log().
+# Scale x into [1, 2) by powers of two, then ln(x) = 2 atanh((x-1)/(x+1)) as a
+# series, which converges fast there (|y| <= 1/3).
+function ln(x,    j, y, y2, s, t, k) {
+	j = 0
+	while (x >= 2) { x /= 2; j++ }
+	while (x < 1) { x *= 2; j-- }
+	y = (x - 1) / (x + 1); y2 = y * y; s = 0; t = y
+	for (k = 1; k <= 41; k += 2) { s += t / k; t *= y2 }
+	return 2 * s + j * 0.6931471805599453
+}
+
 # nW -> dBm with two decimals; "null" when there is no light or no value
 function dbm(nw) {
 	if (!num(nw) || nw + 0 <= 0)
 		return "null"
-	return sprintf("%.2f", 10 * log(nw / 1000000) / log(10))
+	return sprintf("%.2f", 10 * ln(nw / 1000000) / 2.302585092994046)
 }
 
 function scaled(v, div, fmt) { return num(v) ? sprintf(fmt, v / div) : "null" }

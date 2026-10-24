@@ -95,6 +95,20 @@ class Parser(unittest.TestCase):
     def test_field(self, fixture, path, want):
         self.assertEqual(dig(parse(fixture), path), want)
 
+    @data(1, 7, 1000, 1300, 9800, 54321, 199500, 251200, 891200, 1000000, 1816200, 3548100, 3981000, 12345678)
+    def test_dbm_matches_log10(self, nw):
+        # the parser computes logarithms without awk's math library
+        import math
+        raw = (FIX / "g7_o5.json").read_text().replace('"rx_nw":"9800"', f'"rx_nw":"{nw}"')
+        r = subprocess.run([AWK, "-v", "host=h", "-v", "ts=1", "-v", "req_class=bplus", "-f", PARSER.as_posix()],
+                           input=raw, capture_output=True, text=True)
+        want = round(10 * math.log10(nw / 1e6), 2)
+        self.assertAlmostEqual(json.loads(r.stdout)["ddm"]["rx_power_dbm"], want, delta=0.006)
+
+    def test_parser_uses_no_math_library(self):
+        # BusyBox awk can be built without log()/exp(): keep the parser free of them
+        self.assertNotRegex(PARSER.read_text(), r"\b(log|exp|sqrt|sin|cos|atan2)\(")
+
     @data(("bplus", "ITU-T G.984.2 Class B+"), ("cplus", "ITU-T G.984.2 Class C+"), ("bogus", "ITU-T G.984.2 Class B+"))
     @unpack
     def test_class(self, cls, citation):
