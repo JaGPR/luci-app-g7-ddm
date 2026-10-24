@@ -3,6 +3,7 @@
 'require rpc';
 'require poll';
 'require uci';
+'require g7_ddm.omci as g7omci';
 
 /*
  * Modified from luci-app-hsgq-ddm / luci-app-vsol-ddm (Apache-2.0) for the TP-Link
@@ -19,7 +20,15 @@ var callGetStatus = rpc.declare({
 var callGetOmci = rpc.declare({
 	object: 'g7_ddm',
 	method: 'get_omci',
-	expect: {}
+	expect: {},
+	/* the backend passes the G7's MIB objects on; decode them for the cards */
+	filter: function(res) {
+		if (res && Array.isArray(res.objects)) {
+			res.me = g7omci.toMe(res.objects);
+			delete res.objects;
+		}
+		return res;
+	}
 });
 
 var callGetHistory = rpc.declare({
@@ -405,20 +414,43 @@ return view.extend({
 			click: function() { loadOmci(true); }
 		}, _('Refresh OMCI'));
 
-		/* Rebooting and the full OMCI MIB need a login on the G7 itself, so this
-		 * opens its own web interface instead of a restart button. */
+		/* The G7's own web interface is always one click away. Restarting needs
+		 * the G7 login (Settings), so that button appears only when one is set;
+		 * it confirms first and shows what the backend actually returned. */
 		var g7Host = uci.get('g7_ddm', 'main', 'host') || '';
 		var g7Port = uci.get('g7_ddm', 'main', 'port') || '80';
-		var restartBtn = E('a', {
+		var g7Login = !!uci.get('g7_ddm', 'main', 'username');
+		var webLink = E('a', {
 			class: 'cbi-button cbi-button-neutral',
 			href: g7Host ? 'http://' + g7Host + (g7Port != '80' ? ':' + g7Port : '') + '/' : '#',
 			target: '_blank',
 			rel: 'noopener noreferrer'
 		}, _('Open G7 web interface'));
 
+		var restartBtn = g7Login ? E('button', {
+			class: 'cbi-button cbi-button-negative',
+			click: function(ev) {
+				if (!confirm(_('Restart the G7 now? The fibre link and every service through it will drop for about a minute.')))
+					return;
+
+				var btn = ev.currentTarget;
+				btn.disabled = true;
+				setNote(_('Sending the restart command to the G7...'));
+
+				callRestart().then(function(res) {
+					res = res || {};
+					setNote(res.message || res.error || _('Restart command sent.'), res.success ? '' : '#e53935');
+					btn.disabled = false;
+				}).catch(function(e) {
+					setNote(_('Restart failed: ') + (e && e.message ? e.message : String(e)), '#e53935');
+					btn.disabled = false;
+				});
+			}
+		}, _('Restart G7')) : '';
+
 		container.appendChild(E('div', { class: 'hw-actionbar' }, [
 			E('div', { class: 'hw-actionbar-title' }, _('TP-Link XZ000-G7')),
-			E('div', { class: 'hw-actionbar-actions' }, [omciBtn, restartBtn]),
+			E('div', { class: 'hw-actionbar-actions' }, [omciBtn, restartBtn, webLink]),
 			actionNote
 		]));
 

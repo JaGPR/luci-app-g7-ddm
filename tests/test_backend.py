@@ -263,7 +263,7 @@ class Backend(unittest.TestCase):
     def test_test_connection(self, fixture, ok):
         self.assertIs(json.loads(self.run_backend("call", "test_connection", fixture=fixture))["connected"], ok)
 
-    @data(("get_omci", "OMCI summary"), ("restart", "System -> Reboot"))
+    @data(("get_omci", "need the G7 login"), ("restart", "System -> Reboot"))
     @unpack
     def test_unsupported_explained(self, method, text):
         d = json.loads(self.run_backend("call", method))

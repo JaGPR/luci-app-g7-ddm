@@ -22,7 +22,7 @@ return view.extend({
 
 		m = new form.Map('g7_ddm', _('G7 GPON Diagnostics Settings'),
 			_('Reads the optics and GPON state of a TP-Link XZ000-G7 running the galachip OpenWrt firmware. ' +
-			  'The G7 publishes them read-only without a login, so no username or password is needed.'));
+			  'The G7 publishes them read-only without a login; a username and password are optional.'));
 
 		s = m.section(form.NamedSection, 'main', 'g7_ddm', _('Connection Settings'));
 		s.anonymous = true;
@@ -44,6 +44,20 @@ return view.extend({
 		o.datatype = 'port';
 		o.default = '80';
 		o.rmempty = false;
+
+		/* Optional: the optics and GPON state need no login. With the G7's own
+		   LuCI login the dashboard also shows system information and the OMCI
+		   tables and can restart the G7. Stored in /etc/config/g7_ddm (root only). */
+		o = s.option(form.Value, 'username', _('Username'),
+			_('Optional: the G7\'s web interface login (usually <code>root</code>). Adds system information and the OMCI tables, and allows restarting the G7. Leave empty to use only its public status.'));
+		o.placeholder = 'root';
+		o.rmempty = true;
+
+		o = s.option(form.Value, 'password', _('Password'),
+			_('The password of that login. A G7 on which no password has been set yet accepts an empty one.'));
+		o.password = true;
+		o.rmempty = true;
+		o.depends({ 'username': '', '!reverse': true });
 
 		o = s.option(form.ListValue, 'optical_class', _('Optical Class'),
 			_('Used for the labels only; the warning and alarm limits come from the G7\'s own module. In EPON mode PX20 is used automatically.'));

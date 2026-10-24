@@ -4,23 +4,27 @@
 #
 # The G7 publishes its optics and GPON state read-only to unauthenticated callers
 # (ubus "xpon.public status" and "omci.agent status" over its /ubus JSON-RPC
-# endpoint), so no username or password is needed or stored: only its address.
+# endpoint), so only its address is required. An optional username and password
+# (the G7's own LuCI login) add system information, the OMCI MIB and restart.
 #
-# A background poller (run_daemon) is the only thing that talks to the G7. The
+# A background poller (run_daemon) is the only thing that polls the G7. The
 # dashboard reads what it last stored, so opening the page never adds load on
 # the ONU, whose web server serves at most three requests at a time.
 
 UCI_CONFIG="g7_ddm"
 CACHE_FILE="${CACHE_FILE:-/tmp/g7_ddm_cache.json}"
 HISTORY_FILE="${HISTORY_FILE:-/tmp/g7_ddm_history.json}"
+SID_FILE="${SID_FILE:-/tmp/g7_ddm.sid}"
 PARSER="${PARSER:-/usr/share/g7_ddm/parse.awk}"
 MAX_HISTORY_ENTRIES=1440
+PUBLIC_SID="00000000000000000000000000000000"
 
 # Seconds between polls, and the age after which a reading counts as lost: one
 # missed poll is tolerated, a dead ONU surfaces within about a minute.
 POLL_EVERY="${POLL_EVERY:-30}"
 MAX_STALE="${MAX_STALE:-75}"
 
+# Files here (cache, session ID) are readable by root only.
 umask 077
 
 get_config() {
@@ -29,6 +33,8 @@ get_config() {
 	PORT="80"
 	TIMEOUT="8"
 	OPTICAL_CLASS="bplus"
+	USER=""
+	PASS=""
 
 	if command -v uci >/dev/null 2>&1; then
 		v=$(uci -q get ${UCI_CONFIG}.main.enabled);       [ -n "$v" ] && ENABLED="$v"
@@ -36,6 +42,9 @@ get_config() {
 		v=$(uci -q get ${UCI_CONFIG}.main.port);          [ -n "$v" ] && PORT="$v"
 		v=$(uci -q get ${UCI_CONFIG}.main.timeout);       [ -n "$v" ] && TIMEOUT="$v"
 		v=$(uci -q get ${UCI_CONFIG}.main.optical_class); [ -n "$v" ] && OPTICAL_CLASS="$v"
+		v=$(uci -q get ${UCI_CONFIG}.main.username);      [ -n "$v" ] && USER="$v"
+		# an empty password is valid: it is the G7's default
+		PASS=$(uci -q get ${UCI_CONFIG}.main.password)
 	fi
 
 	case "$OPTICAL_CLASS" in bplus|cplus|epon_px20) ;; *) OPTICAL_CLASS="bplus" ;; esac
@@ -51,12 +60,20 @@ is_configured() {
 	[ -n "$HOST" ]
 }
 
+has_login() {
+	[ -n "$USER" ]
+}
+
 unconfigured_json() {
 	printf '{"success": false, "configured": false, "connected": false, "host": "", "error": "Not configured. Set the G7 address under Settings."}\n'
 }
 
-# One batched JSON-RPC request to the G7's /ubus endpoint; prints the reply.
-REQUEST='[{"jsonrpc":"2.0","id":1,"method":"call","params":["00000000000000000000000000000000","xpon.public","status",{}]},{"jsonrpc":"2.0","id":2,"method":"call","params":["00000000000000000000000000000000","omci.agent","status",{}]}]'
+# The text of a JSON string for a shell value: backslash, quote, tab, CR, LF escaped.
+json_str() {
+	printf '%s' "$1" | awk 'BEGIN { RS = "\001" } {
+		gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); gsub(/\n/, "\\n")
+		printf "%s", $0 }'
+}
 
 http_post() {
 	# http_post <url> <body>
@@ -67,12 +84,87 @@ http_post() {
 	fi
 }
 
+g7_url() {
+	if [ "$PORT" = 80 ]; then echo "http://$HOST/ubus"; else echo "http://$HOST:$PORT/ubus"; fi
+}
+
+# One ubus call as a JSON-RPC request: rpc <id> <session> <object> <method> [json args]
+rpc() {
+	_args="$5"
+	[ -n "$_args" ] || _args="{}"
+	printf '{"jsonrpc":"2.0","id":%s,"method":"call","params":["%s","%s","%s",%s]}' "$1" "$2" "$3" "$4" "$_args"
+}
+
+# Log in to the G7 (an rpcd session, like its own LuCI) and print the session ID.
+# A saved session is reused unless "login 1" asks for a fresh one.
+login() {
+	if [ "$1" != 1 ] && [ -s "$SID_FILE" ]; then
+		cat "$SID_FILE"
+		return 0
+	fi
+	_args="{\"username\":\"$(json_str "$USER")\",\"password\":\"$(json_str "$PASS")\",\"timeout\":900}"
+	_r=$(http_post "$(g7_url)" "$(rpc 1 "$PUBLIC_SID" session login "$_args")") || return 1
+	_sid=$(printf '%s' "$_r" | sed -n 's/.*"ubus_rpc_session"[ ]*:[ ]*"\([0-9a-f]*\)".*/\1/p')
+	if [ "${#_sid}" != 32 ]; then
+		rm -f "$SID_FILE"
+		return 1
+	fi
+	printf '%s' "$_sid" > "$SID_FILE"
+	echo "$_sid"
+}
+
+# True for a reply that rejects the session (expired or never valid)
+session_rejected() {
+	case "$1" in *'"code":-32002'*|*'Access denied'*) return 0 ;; esac
+	return 1
+}
+
+# The status request: the two public calls, plus system info and board with a session.
+status_request() {
+	if [ "$1" = "$PUBLIC_SID" ]; then
+		printf '[%s,%s]' "$(rpc 1 "$1" xpon.public status)" "$(rpc 2 "$1" omci.agent status)"
+	else
+		printf '[%s,%s,%s,%s]' "$(rpc 1 "$1" xpon.public status)" "$(rpc 2 "$1" omci.agent status)" \
+			"$(rpc 3 "$1" system info)" "$(rpc 4 "$1" system board)"
+	fi
+}
+
+# Query the G7 and print the dashboard JSON. Sets AUTH to what the login did.
 do_query() {
-	_url="http://$HOST"
-	[ "$PORT" = 80 ] || _url="$_url:$PORT"
-	_raw=$(http_post "$_url/ubus" "$REQUEST") || return 1
+	AUTH="public"
+	_sid="$PUBLIC_SID"
+	if has_login; then
+		if _sid=$(login); then
+			AUTH="logged in as $USER"
+		else
+			_sid="$PUBLIC_SID"
+			AUTH="login failed for $USER"
+		fi
+	fi
+	_raw=$(http_post "$(g7_url)" "$(status_request "$_sid")") || return 1
+	if [ "$_sid" != "$PUBLIC_SID" ] && session_rejected "$_raw"; then
+		if _sid=$(login 1); then
+			_raw=$(http_post "$(g7_url)" "$(status_request "$_sid")") || return 1
+		else
+			AUTH="login failed for $USER"
+			_raw=$(http_post "$(g7_url)" "$(status_request "$PUBLIC_SID")") || return 1
+		fi
+	fi
 	[ -n "$_raw" ] || return 1
-	printf '%s\n' "$_raw" | awk -v host="$HOST" -v ts="$(date +%s)" -v req_class="$OPTICAL_CLASS" -f "$PARSER"
+	printf '%s\n' "$_raw" | awk -v host="$HOST" -v ts="$(date +%s)" -v req_class="$OPTICAL_CLASS" \
+		-v auth="$AUTH" -f "$PARSER"
+}
+
+# One authenticated call; prints the raw reply. Logs in again once when the
+# saved session was rejected. auth_call <object> <method> [json args]
+auth_call() {
+	_sid=$(login) || return 1
+	_r=$(http_post "$(g7_url)" "$(rpc 1 "$_sid" "$1" "$2" "$3")") || return 1
+	if session_rejected "$_r"; then
+		_sid=$(login 1) || return 1
+		_r=$(http_post "$(g7_url)" "$(rpc 1 "$_sid" "$1" "$2" "$3")") || return 1
+	fi
+	printf '%s' "$_r"
 }
 
 record_history_sample() {
@@ -165,26 +257,62 @@ test_connection() {
 	get_config
 	is_configured || { unconfigured_json; return; }
 
-	case "$(do_query)" in
+	# do_query runs in a subshell here, so the login result comes from its output
+	_out=$(do_query)
+	_auth=$(printf '%s' "$_out" | sed -n 's/^[ ]*"auth": "\(.*\)",$/\1/p')
+	case "$_out" in
 		*'"success": true'*)
-			printf '{"success": true, "connected": true, "host": "%s", "message": "The G7 answered with its optical and GPON status"}\n' "$HOST" ;;
+			case "$_auth" in
+				"login failed"*)
+					printf '{"success": false, "connected": true, "host": "%s", "error": "The G7 answers, but the login failed: check the username and password (the public status still works)"}\n' "$HOST" ;;
+				"logged in"*)
+					printf '{"success": true, "connected": true, "host": "%s", "message": "The G7 answered and the login works"}\n' "$HOST" ;;
+				*)
+					printf '{"success": true, "connected": true, "host": "%s", "message": "The G7 answered with its optical and GPON status"}\n' "$HOST" ;;
+			esac ;;
 		*)
 			printf '{"success": false, "connected": false, "host": "%s", "error": "No status from http://%s/ubus (is it a G7 running the galachip OpenWrt firmware?)"}\n' "$HOST" "$HOST" ;;
 	esac
 }
 
-# The dashboard's OMCI panel lists managed entities; the G7 publishes only a
-# summary without a login, so the panel says so instead of showing tables.
+# The OMCI MIB (omci.agent mib_list) needs the login. The objects are passed on
+# as the G7 reports them; the dashboard decodes their attributes (g7_ddm/omci.js).
 fetch_omci() {
 	get_config
 	is_configured || { unconfigured_json; return; }
-	printf '{"success": false, "connected": true, "host": "%s", "error": "The G7 publishes only an OMCI summary without a login (see GPON status). The full MIB is under GPON in the G7'"'"'s own web interface."}\n' "$HOST"
+	if ! has_login; then
+		printf '{"success": false, "connected": true, "host": "%s", "error": "The OMCI tables need the G7 login: add its username and password under Settings."}\n' "$HOST"
+		return
+	fi
+	if ! _r=$(auth_call omci.agent mib_list); then
+		printf '{"success": false, "connected": false, "host": "%s", "error": "Could not log in to the G7 at %s: check the username and password."}\n' "$HOST" "$HOST"
+		return
+	fi
+	case "$_r" in
+		*'"result":[0,{"objects":'*)
+			# {"jsonrpc":..,"result":[0,{"objects":[...]}]} -> {"success": true, ..., "objects":[...]}
+			printf '%s\n' "$_r" | sed -e 's/^.*"result":\[0,{"objects":/{"success": true, "connected": true, "host": "'"$HOST"'", "objects":/' \
+				-e 's/}\][ ]*}[ ]*$/}/'
+			;;
+		*)
+			printf '{"success": false, "connected": true, "host": "%s", "error": "The G7 did not return its OMCI MIB (is the login an administrator?)"}\n' "$HOST" ;;
+	esac
 }
 
 do_restart() {
 	get_config
 	is_configured || { unconfigured_json; return; }
-	printf '{"success": false, "host": "%s", "error": "Restarting needs a login on the G7: use System -> Reboot in its web interface (http://%s)."}\n' "$HOST" "$HOST"
+	if ! has_login; then
+		printf '{"success": false, "host": "%s", "error": "Restarting needs the G7 login: add its username and password under Settings, or use System -> Reboot in its web interface (http://%s)."}\n' "$HOST" "$HOST"
+		return
+	fi
+	case "$(auth_call system reboot)" in
+		*'"result":[0'*)
+			rm -f "$SID_FILE" "$CACHE_FILE"
+			printf '{"success": true, "host": "%s", "message": "Restart command sent to the G7. It will be unreachable for about a minute."}\n' "$HOST" ;;
+		*)
+			printf '{"success": false, "host": "%s", "error": "The G7 did not accept the restart: check the username and password."}\n' "$HOST" ;;
+	esac
 }
 
 case "$1" in

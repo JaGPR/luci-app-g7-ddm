@@ -8,9 +8,16 @@ alarm limits, GPON state (O1–O7), ONU-ID, OLT profile, LOS alarm and 24-hour h
 It is the G7 sibling of [luci-app-hsgq-ddm](https://github.com/JaGPR/luci-app-hsgq-ddm) and
 [luci-app-vsol-ddm](https://github.com/AliLostInTheDark/luci-app-vsol-ddm), with the same dashboard.
 
-**No login needed.** The G7 firmware publishes its optics and GPON state read-only over HTTP
-(`xpon.public status`, `omci.agent status` on its `/ubus` endpoint), so the only setting is
-the G7's address. Nothing is stored but that address.
+**No login needed** for the optics and GPON state: the G7 firmware publishes them read-only over
+HTTP (`xpon.public status`, `omci.agent status` on its `/ubus` endpoint), so the only required
+setting is the G7's address.
+
+**Optional login.** With the G7's own web-interface username and password (Settings) the
+dashboard also shows system information (firmware, kernel, uptime, load), the **OMCI tables**
+(Ethernet UNI, VLAN filter, extended VLAN rules, VEIP, OLT identification, decoded from the
+G7's MIB) and gets a **Restart G7** button. A G7 without a root password accepts `root` with an
+empty password. The login is stored in `/etc/config/g7_ddm` (root only) and never shown; if it
+fails, the dashboard keeps working from the public status and Test connection says why.
 
 ## How it works
 - A background poller on the router asks the G7 for its status every 30 s with one batched
@@ -18,8 +25,9 @@ the G7's address. Nothing is stored but that address.
 - The dashboard only reads that cache, so leaving the page open adds no load on the G7.
 - The cache has the same format as luci-app-vsol-ddm / -hsgq-ddm, so tools that read those
   (for example Home NOC's fibre panel and alerts) can read the G7's too.
-- The full OMCI MIB and reboot need a login on the G7; the dashboard links to its own web
-  interface for those.
+- With the optional login the poller adds `system info` / `system board` to the same request,
+  OMCI tables are read on demand (`omci.agent mib_list`, decoded in `g7_ddm/omci.js`), and the
+  session is reused until the G7 rejects it.
 
 ## Install
 ```sh

@@ -9,7 +9,11 @@
 # luci-app-hsgq-ddm caches (success, ddm, onu, device, thresholds), so the same
 # dashboard and the Home NOC read it unchanged.
 #
-# Variables: host, ts (unix time), req_class (bplus | cplus | epon_px20 | auto)
+# With the G7 login the reply also has "system info" and "system board", which
+# fill the device uptime, load, firmware and kernel.
+#
+# Variables: host, ts (unix time), req_class (bplus | cplus | epon_px20 | auto),
+#            auth (public | logged in as <user> | login failed for <user>)
 #
 # Portable awk only (BusyBox, mawk, gawk): no gensub, no arrays of arrays.
 
@@ -126,9 +130,23 @@ END {
 	printf "    \"alarm_los\": %s\n", js(alos)
 	printf "  },\n"
 
+	# with the G7 login: system info / system board
+	up = val("uptime")
+	uptime = num(up) ? sprintf("%dd %dh %dm", int(up / 86400), int(up % 86400 / 3600), int(up % 3600 / 60)) : ""
+	load = ""
+	if (match(ALL, /"load"[ \t]*:[ \t]*\[[ \t]*[0-9]+[ \t]*,[ \t]*[0-9]+[ \t]*,[ \t]*[0-9]+/)) {
+		s = substr(ALL, RSTART, RLENGTH); sub(/^[^[]*\[/, "", s); split(s, LD, ",")
+		load = sprintf("load %.2f / %.2f / %.2f", LD[1] / 65536, LD[2] / 65536, LD[3] / 65536)
+	}
+	model = val("model") != "" ? val("model") : val("hardware_version")
+	firmware = val("description") != "" ? val("description") : "OpenWrt (galachip)"
+	kernel = val("kernel") != "" ? "Linux " val("kernel") : "GalaChip GC1601"
+
+	printf "  \"auth\": %s,\n", jsn(auth == "" ? "public" : auth)
 	printf "  \"device\": {\n"
-	printf "    \"model\": %s,\n    \"vendor\": \"TP-Link\",\n", jsn(val("hardware_version"))
-	printf "    \"firmware\": \"OpenWrt (galachip)\",\n    \"hardware\": \"GalaChip GC1601\",\n"
+	printf "    \"model\": %s,\n    \"vendor\": \"TP-Link\",\n", jsn(model)
+	printf "    \"firmware\": %s,\n    \"hardware\": %s,\n", js(firmware), js(kernel)
+	printf "    \"uptime\": %s,\n    \"cpu_usage\": %s,\n", jsn(uptime), jsn(load)
 	printf "    \"rx_packets\": %s,\n    \"tx_packets\": %s,\n    \"rx_bytes\": %s,\n    \"tx_bytes\": %s\n", \
 		jn(val("rx_packets")), jn(val("tx_packets")), jn(val("rx_bytes")), jn(val("tx_bytes"))
 	printf "  },\n"

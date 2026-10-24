@@ -10,6 +10,8 @@ PROG="/usr/libexec/rpcd/g7_ddm"
 
 start_service() {
 	local enabled
+	# a changed login must not reuse the session of the previous one
+	rm -f /tmp/g7_ddm.sid
 	config_load g7_ddm
 	config_get_bool enabled main enabled 1
 	[ "$enabled" -eq 1 ] || return 0

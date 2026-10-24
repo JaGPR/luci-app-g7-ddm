@@ -154,15 +154,108 @@ class Pages(unittest.TestCase):
         finally:
             page.context.close()
 
-    def test_settings_has_no_credentials(self):
+    def test_settings_credentials_are_optional(self):
         page = self.open("admin/status/g7_ddm/settings", SIZES["desktop"])
         try:
             text = page.inner_text("body")
             self.assertIn("G7 IP Address", text)
-            self.assertNotIn("Password", text)
+            self.assertIn("Optional", text)
             self.assertNotIn("Telnet", text)
         finally:
             page.context.close()
+
+
+@ddt
+class Login(unittest.TestCase):
+    """The optional G7 login, against the real G7 (root with an empty password,
+    the G7's default). The original settings are restored afterwards; the G7 is
+    never restarted (the Restart confirmation is dismissed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.saved = {k: ssh(f"uci -q get g7_ddm.main.{k}")[0] for k in ("username", "password")}
+        if not g7_answers():
+            raise unittest.SkipTest("the G7 does not answer right now")
+
+    @classmethod
+    def tearDownClass(cls):
+        cmds = []
+        for k, v in cls.saved.items():
+            cmds.append(f"uci set g7_ddm.main.{k}='{v}'" if v else f"uci -q delete g7_ddm.main.{k}")
+        ssh("; ".join(cmds) + "; uci commit g7_ddm; /etc/init.d/g7_ddm restart")
+
+    def login_as(self, user, password):
+        ssh(f"uci set g7_ddm.main.username='{user}'; uci set g7_ddm.main.password='{password}'; uci commit g7_ddm; "
+            "rm -f /tmp/g7_ddm.sid; /usr/libexec/rpcd/g7_ddm poll")
+
+    def test_default_login_works(self):
+        self.login_as("root", "")
+        d = ubus_json("g7_ddm", "test_connection")
+        self.assertIn("login works", d.get("message", ""), d)
+        s = ubus_json("g7_ddm", "get_status")
+        self.assertEqual(s["auth"], "logged in as root")
+        self.assertRegex(s["device"]["uptime"] or "", r"^\d+d \d+h \d+m$")
+        self.assertIn("OpenWrt", s["device"]["firmware"])
+        self.assertTrue(s["device"]["hardware"].startswith("Linux "))
+
+    def test_omci_objects(self):
+        self.login_as("root", "")
+        d = ubus_json("g7_ddm", "get_omci")
+        self.assertIs(d["success"], True)
+        self.assertIn(11, {o["class_id"] for o in d["objects"]})
+
+    @data("definitely-wrong-password")
+    def test_wrong_password_reported(self, password):
+        self.login_as("root", password)
+        d = ubus_json("g7_ddm", "test_connection")
+        if d.get("success"):
+            self.skipTest("this G7 accepts any password for root (none set): nothing to refuse")
+        self.assertIn("login failed", d["error"])
+        self.assertEqual(ubus_json("g7_ddm", "get_status")["auth"], "login failed for root")
+
+    def test_dashboard_with_login(self):
+        self.login_as("root", "")
+        sys.path.insert(0, os.path.dirname(__file__))
+        import _browser
+        ctx = _browser.browser().new_context(viewport={"width": 1280, "height": 900})
+        ctx.add_cookies([{"name": "sysauth_http", "value": SID, "url": f"http://{HOST}"}])
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        dialogs = []
+        page.on("dialog", lambda dlg: (dialogs.append(dlg.message), dlg.dismiss()))
+        try:
+            page.goto(f"http://{HOST}/cgi-bin/luci/admin/status/g7_ddm/dashboard", wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(6000)
+            self.assertEqual(errors, [])
+            view = page.inner_text("#view").upper()     # the theme shows card labels in capitals
+            self.assertIn("ENTITY 257 (0X0101)", view, "Ethernet UNI card shows the G7's UNI ports")
+            self.assertIn("10/100/1000BASE-T", view)
+            self.assertIn("SYSTEM UPTIME", view)
+            btn = page.locator("button:has-text('Restart G7')")
+            self.assertEqual(btn.count(), 1)
+            up_before = ubus_json("g7_ddm", "get_status")["device"]["uptime"]
+            btn.click()
+            page.wait_for_timeout(1000)
+            self.assertTrue(dialogs and "Restart the G7" in dialogs[0], dialogs)
+            self.assertTrue(g7_answers(), "dismissed: the G7 was not restarted")
+            self.assertIsNotNone(up_before)
+        finally:
+            ctx.close()
+
+    def test_settings_fields(self):
+        sys.path.insert(0, os.path.dirname(__file__))
+        import _browser
+        ctx = _browser.browser().new_context(viewport={"width": 1280, "height": 900})
+        ctx.add_cookies([{"name": "sysauth_http", "value": SID, "url": f"http://{HOST}"}])
+        page = ctx.new_page()
+        try:
+            page.goto(f"http://{HOST}/cgi-bin/luci/admin/status/g7_ddm/settings", wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(3000)
+            self.assertEqual(page.locator("input[id$='.username']").count(), 1)
+            self.assertEqual(page.locator("input[id$='.password'][type='password']").count(), 1)
+        finally:
+            ctx.close()
 
 
 if __name__ == "__main__":

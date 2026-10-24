@@ -43,22 +43,23 @@ SRC="$(find "$WORK" -maxdepth 2 -type f -name Makefile -path '*g7-ddm*' | head -
 
 # 2. Install files (config is only created if it does not exist yet)
 say "Installing files"
-run "mkdir -p /usr/libexec/rpcd /usr/share/g7_ddm /www/luci-static/resources/view/g7_ddm /etc/init.d /etc/config /usr/share/luci/menu.d /usr/share/rpcd/acl.d /lib/upgrade/keep.d"
+run "mkdir -p /usr/libexec/rpcd /usr/share/g7_ddm /www/luci-static/resources/g7_ddm /www/luci-static/resources/view/g7_ddm /etc/init.d /etc/config /usr/share/luci/menu.d /usr/share/rpcd/acl.d /lib/upgrade/keep.d"
 run "cp '$SRC/root/usr/libexec/rpcd/g7_ddm' /usr/libexec/rpcd/g7_ddm"
 run "cp '$SRC'/root/usr/share/g7_ddm/*.awk /usr/share/g7_ddm/"
+run "cp '$SRC'/htdocs/luci-static/resources/g7_ddm/*.js /www/luci-static/resources/g7_ddm/"
 run "cp '$SRC'/htdocs/luci-static/resources/view/g7_ddm/*.js /www/luci-static/resources/view/g7_ddm/"
 run "cp '$SRC/root/etc/init.d/g7_ddm' /etc/init.d/g7_ddm"
 run "cp '$SRC/root/usr/share/luci/menu.d/luci-app-g7-ddm.json' /usr/share/luci/menu.d/"
 run "cp '$SRC/root/usr/share/rpcd/acl.d/luci-app-g7-ddm.json' /usr/share/rpcd/acl.d/"
 run "cp '$SRC/root/lib/upgrade/keep.d/luci-app-g7-ddm' /lib/upgrade/keep.d/"
 if [ -f /etc/config/g7_ddm ]; then
-	say "Keeping existing /etc/config/g7_ddm (your G7 address is preserved)"
+	say "Keeping existing /etc/config/g7_ddm (your G7 address and login are preserved)"
 else
 	run "cp '$SRC/root/etc/config/g7_ddm' /etc/config/g7_ddm"
 fi
 run "chmod 755 /usr/libexec/rpcd/g7_ddm /etc/init.d/g7_ddm"
 run "chmod 600 /etc/config/g7_ddm"
-run "chmod 644 /usr/share/g7_ddm/*.awk /www/luci-static/resources/view/g7_ddm/*.js /usr/share/luci/menu.d/luci-app-g7-ddm.json /usr/share/rpcd/acl.d/luci-app-g7-ddm.json /lib/upgrade/keep.d/luci-app-g7-ddm"
+run "chmod 644 /usr/share/g7_ddm/*.awk /www/luci-static/resources/g7_ddm/*.js /www/luci-static/resources/view/g7_ddm/*.js /usr/share/luci/menu.d/luci-app-g7-ddm.json /usr/share/rpcd/acl.d/luci-app-g7-ddm.json /lib/upgrade/keep.d/luci-app-g7-ddm"
 
 # 3. Seed defaults (never overwrites existing values), register with rpcd, start
 say "Applying defaults and registering with LuCI"
@@ -77,6 +78,7 @@ cat <<'EOF'
       - Save & Apply, then press "Test connection"
    3. Open  Status -> G7 GPON DDM -> Optical Diagnostics
 
-  No username or password is needed: the G7 publishes its optics and GPON
-  state read-only. The router must be able to reach the G7's address.
+  The G7 publishes its optics and GPON state without a login. Its username and
+  password (optional, in Settings) add system information, the OMCI tables and
+  restart. The router must be able to reach the G7's address.
 EOF

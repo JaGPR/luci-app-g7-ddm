@@ -55,6 +55,9 @@ define Package/luci-app-g7-ddm/install
 	$(INSTALL_DIR) $(1)/usr/share/g7_ddm
 	$(INSTALL_DATA) ./root/usr/share/g7_ddm/* $(1)/usr/share/g7_ddm/
 
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/g7_ddm
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/g7_ddm/* $(1)/www/luci-static/resources/g7_ddm/
+
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/g7_ddm
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/g7_ddm/* $(1)/www/luci-static/resources/view/g7_ddm/
 
