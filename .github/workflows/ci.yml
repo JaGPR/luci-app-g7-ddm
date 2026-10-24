@@ -31,14 +31,22 @@ jobs:
           done
       - name: Data-driven unit tests (GNU awk)
         run: python -m unittest discover -s tests -p "test_*.py" -v
-      - name: Parser under BusyBox awk gives the same output
+      - name: Parser under BusyBox awk (the router's) gives the same data as mawk
         run: |
           set -eu
           for f in tests/fixtures/*.json; do
-            a=$(awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f")
-            b=$(busybox awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f")
-            [ "$a" = "$b" ] || { echo "differs: $f"; exit 1; }
-            echo "ok: $f"
+            awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f" > /tmp/a.json
+            busybox awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f" > /tmp/b.json
+            python3 - "$f" <<'EOF'
+          import json, sys
+          a, b = json.load(open('/tmp/a.json')), json.load(open('/tmp/b.json'))
+          def flat(d, p=''):
+              return {k2: v2 for k, v in d.items() for k2, v2 in (flat(v, p + k + '.').items() if isinstance(v, dict) else [(p + k, v)])}
+          fa, fb = flat(a), flat(b)
+          diff = {k: (fa.get(k), fb.get(k)) for k in set(fa) | set(fb) if fa.get(k) != fb.get(k)}
+          print(('ok: ' if not diff else 'DIFFERS: ') + sys.argv[1], diff or '')
+          sys.exit(1 if diff else 0)
+          EOF
           done
 
   views:
