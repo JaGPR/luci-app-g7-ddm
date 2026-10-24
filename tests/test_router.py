@@ -97,7 +97,8 @@ class Backend(unittest.TestCase):
         d = ubus_json("g7_ddm", "get_status")
         self.assertTrue(d["success"])
         self.assertRegex(d["onu"]["state"] or "", r"^O[1-7]$|^$")
-        self.assertIsInstance(d["thresholds"]["rx_pwr_low_alarm"], float)
+        # ubus re-encodes rpcd replies and drops a zero fraction (-30.00 -> -30): any number will do
+        self.assertIsInstance(d["thresholds"]["rx_pwr_low_alarm"], (int, float))
         hist = ubus_json("g7_ddm", "get_history")["history"]
         self.assertGreaterEqual(len(hist), 1)
 
