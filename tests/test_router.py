@@ -232,6 +232,12 @@ class Login(unittest.TestCase):
             self.assertIn("ENTITY 257 (0X0101)", view, "Ethernet UNI card shows the G7's UNI ports")
             self.assertIn("10/100/1000BASE-T", view)
             self.assertIn("SYSTEM UPTIME", view)
+            origins = {o.get("origin_name") for o in ubus_json("g7_ddm", "get_omci")["objects"] if o["class_id"] == 84}
+            card = view[view.index("ME 84 - "):view.index("ME 171 - ")]
+            if "default" in origins:
+                self.assertIn("FIRMWARE DEFAULT, NOT FROM THE OLT", card)
+            if {"olt", "default"} <= origins:    # registered: the ISP's filters come before the firmware's
+                self.assertLess(card.index("OLT (ISP SERVICE)"), card.index("FIRMWARE DEFAULT, NOT FROM THE OLT"))
             btn = page.locator("button:has-text('Restart G7')")
             self.assertEqual(btn.count(), 1)
             up_before = ubus_json("g7_ddm", "get_status")["device"]["uptime"]

@@ -116,6 +116,23 @@ class RealObjects(unittest.TestCase):
         ids = js("o => m.toMe(o)['11'].instances.map(i => i.EntityID)", MIB)
         self.assertEqual(ids, sorted(ids, key=lambda s: int(s.split()[0])))
 
+    @data(("default", "Firmware default, not from the OLT"), ("olt", "OLT (ISP service)"), ("local", "Set on this G7"), ("odd", "odd"))
+    @unpack
+    def test_source(self, origin, label):
+        self.assertEqual(js("o => m.instance(o)", obj(84, 1, hexs(0), origin_name=origin))["Source"], label)
+
+    def test_olt_objects_listed_first(self):
+        # as on a registered G7: two firmware defaults (VID 660, 100) and two OLT filters (VID 1015)
+        objs = [obj(84, 1, hexs((660, 2), *[0] * 22, 0x10, 1), origin_name="default"),
+                obj(84, 2, hexs((100, 2), *[0] * 22, 0x10, 1), origin_name="default"),
+                obj(84, 0x4102, hexs((1015, 2), *[0] * 22, 0x10, 1), origin_name="olt"),
+                obj(84, 0x410B, hexs((1015, 2), *[0] * 22, 0x10, 1), origin_name="olt")]
+        got = js("o => m.toMe(o)['84'].instances.map(i => [i.EntityID, i.Source, i.lines[0]])", objs)
+        self.assertEqual(got, [["16642 (0x4102)", "OLT (ISP service)", "VLAN 1: VID 1015, pbit 0, DEI 0"],
+                               ["16651 (0x410b)", "OLT (ISP service)", "VLAN 1: VID 1015, pbit 0, DEI 0"],
+                               ["1 (0x0001)", "Firmware default, not from the OLT", "VLAN 1: VID 660, pbit 0, DEI 0"],
+                               ["2 (0x0002)", "Firmware default, not from the OLT", "VLAN 1: VID 100, pbit 0, DEI 0"]])
+
     @data(("AdminState", "0 (unlocked)"), ("OpState", "0 (enabled)"), ("IanaAssignedPort", "0"))
     @unpack
     def test_veip(self, key, want):
@@ -195,7 +212,7 @@ class Robustness(unittest.TestCase):
 
     def test_short_data_skips_missing_fields(self):
         inst = js("o => m.instance(o)", {"class_id": 11, "entity_id": 1, "data": "0001"})
-        self.assertEqual(inst, {"EntityID": "1 (0x0001)", "ExpectedType": "0", "SensedType": "1 (10BASE-T)"})
+        self.assertEqual(inst, {"EntityID": "1 (0x0001)", "ExpectedType": "0", "SensedType": "1 (10BASE-T)"})  # no origin: no Source
 
 
 if __name__ == "__main__":

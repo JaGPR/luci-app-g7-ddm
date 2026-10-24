@@ -38,6 +38,12 @@ var LAYOUTS = {
 
 var CLASSES = [ 11, 84, 171, 329, 131 ];
 
+/* Who created an object: the agent reports it as origin_name. Firmware defaults
+   (e.g. VLAN filters for VID 100 / 660 on a local bridge) are not part of the
+   ISP's service, so they are labelled and listed after the OLT's objects. */
+var SOURCES = { olt: 'OLT (ISP service)', 'default': 'Firmware default, not from the OLT', local: 'Set on this G7', hardware: 'Hardware' };
+var SOURCE_ORDER = { olt: 0, local: 1, hardware: 2, 'default': 3 };
+
 return baseclass.extend({
 	LAYOUTS: LAYOUTS,
 
@@ -116,6 +122,8 @@ return baseclass.extend({
 	/* One MIB object -> one card instance. */
 	instance: function(o) {
 		var b = this.bytes(o.data), inst = { EntityID: o.entity_id + ' (' + this.hex(o.entity_id, 2) + ')' };
+		if (o.origin_name)
+			inst.Source = SOURCES[o.origin_name] || o.origin_name;
 		var self = this;
 
 		(LAYOUTS[o.class_id] || []).forEach(function(spec) {
@@ -169,7 +177,11 @@ return baseclass.extend({
 
 		CLASSES.forEach(function(c) {
 			var list = (objects || []).filter(function(o) { return o && o.class_id == c; })
-				.sort(function(a, b) { return a.entity_id - b.entity_id; });
+				.sort(function(a, b) {
+					var oa = SOURCE_ORDER[a.origin_name], ob = SOURCE_ORDER[b.origin_name];
+					oa = oa == null ? 1 : oa; ob = ob == null ? 1 : ob;
+					return oa - ob || a.entity_id - b.entity_id;
+				});
 			if (list.length)
 				me[String(c)] = { instances: list.map(function(o) { return self.instance(o); }) };
 		});

@@ -28,6 +28,9 @@ fails, the dashboard keeps working from the public status and Test connection sa
 - With the optional login the poller adds `system info` / `system board` to the same request,
   OMCI tables are read on demand (`omci.agent mib_list`, decoded in `g7_ddm/omci.js`), and the
   session is reused until the G7 rejects it.
+- Each OMCI object is labelled with who created it: the OLT (the ISP's service, listed first) or
+  the firmware's own defaults. A G7 always carries default VLAN filters for VID 100 and 660 on a
+  local bridge; they are not from your ISP and carry no traffic.
 
 ## Install
 ```sh
