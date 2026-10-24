@@ -39,13 +39,22 @@ jobs:
             busybox awk -v host=192.0.2.1 -v ts=1 -v req_class=bplus -f root/usr/share/g7_ddm/parse.awk "$f" > /tmp/b.json
             python3 - "$f" <<'EOF'
           import json, sys
-          a, b = json.load(open('/tmp/a.json')), json.load(open('/tmp/b.json'))
+          def load(p, who):
+              raw = open(p).read()
+              try:
+                  return json.loads(raw)
+              except ValueError as e:
+                  print(f"::error::{who} output for {sys.argv[1]} is not JSON ({e}): {raw[:300]!r}")
+                  sys.exit(1)
+          a, b = load('/tmp/a.json', 'mawk'), load('/tmp/b.json', 'busybox awk')
           def flat(d, p=''):
               return {k2: v2 for k, v in d.items() for k2, v2 in (flat(v, p + k + '.').items() if isinstance(v, dict) else [(p + k, v)])}
           fa, fb = flat(a), flat(b)
-          diff = {k: (fa.get(k), fb.get(k)) for k in set(fa) | set(fb) if fa.get(k) != fb.get(k)}
-          print(('ok: ' if not diff else 'DIFFERS: ') + sys.argv[1], diff or '')
-          sys.exit(1 if diff else 0)
+          diff = {k: (fa.get(k), fb.get(k)) for k in sorted(set(fa) | set(fb)) if fa.get(k) != fb.get(k)}
+          if diff:
+              print(f"::error::{sys.argv[1]}: mawk vs busybox differ: {diff}")
+              sys.exit(1)
+          print('ok: ' + sys.argv[1])
           EOF
           done
 
