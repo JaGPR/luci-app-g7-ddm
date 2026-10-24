@@ -107,7 +107,8 @@ class Parser(unittest.TestCase):
 
     def test_parser_uses_no_math_library(self):
         # BusyBox awk can be built without log()/exp(): keep the parser free of them
-        self.assertNotRegex(PARSER.read_text(), r"\b(log|exp|sqrt|sin|cos|atan2)\(")
+        code = "\n".join(l.split("#")[0] for l in PARSER.read_text(encoding="utf-8").splitlines())
+        self.assertNotRegex(code, r"\b(log|exp|sqrt|sin|cos|atan2)\(")
 
     @data(("bplus", "ITU-T G.984.2 Class B+"), ("cplus", "ITU-T G.984.2 Class C+"), ("bogus", "ITU-T G.984.2 Class B+"))
     @unpack
